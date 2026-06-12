@@ -495,6 +495,9 @@ class OBSController:
 
         Returns:
             dict: 包含 volume_mul（倍数）和 volume_db（分贝）
+
+        Raises:
+            OBSSDKRequestError: code 604 表示输入源不支持音频；其他错误正常抛出
         """
         try:
             resp = self.req.get_input_volume(input_name)
@@ -504,6 +507,20 @@ class OBSController:
             }
         except OBSSDKRequestError as e:
             logger.error(f"获取音量失败 [{input_name}]: {e}")
+            raise
+
+    def get_input_volume_safe(self, input_name: str) -> Dict[str, float]:
+        """
+        安全版：不支持音频的输入源（code 604）静默返回默认音量，其他错误仍抛出。
+
+        Returns:
+            dict: 包含 volume_mul（0~1）和 volume_db（dB）
+        """
+        try:
+            return self.get_input_volume(input_name)
+        except OBSSDKRequestError as e:
+            if getattr(e, "code", None) == 604:
+                return {"volume_mul": 1.0, "volume_db": 0.0}
             raise
 
     def set_input_volume(self, input_name: str, volume_db: Optional[float] = None,
