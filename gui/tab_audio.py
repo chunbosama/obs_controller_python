@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QSlider, QGroupBox, QScrollArea,
+    QLabel, QSlider, QGroupBox, QScrollArea, QSizePolicy,
 )
 from PyQt5.QtGui import QPainter, QColor, QPen
 from PyQt5.QtCore import Qt
@@ -34,7 +34,8 @@ class VUMeter(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(VU_W, VU_H)
+        self.setMinimumSize(80, 8)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._db = -60.0
 
     def set_db(self, db: float) -> None:
@@ -45,20 +46,24 @@ class VUMeter(QWidget):
         p = QPainter(self)
         p.setPen(Qt.NoPen)
 
+        # 获取实际大小
+        w = self.width()
+        h = self.height()
+
         # 背景
-        p.fillRect(0, 0, VU_W, VU_H, QColor("#1a1a1a"))
+        p.fillRect(0, 0, w, h, QColor("#1a1a1a"))
 
         ratio = (self._db + 60) / 60.0
-        fill_w = int(VU_W * ratio)
+        fill_w = int(w * ratio)
 
         x = 0
         for lo, hi, color in VU_COLORS:
             seg_ratio_lo = (lo + 60) / 60.0
             seg_ratio_hi = (hi + 60) / 60.0
-            seg_x0 = int(VU_W * seg_ratio_lo)
-            seg_x1 = int(VU_W * seg_ratio_hi)
+            seg_x0 = int(w * seg_ratio_lo)
+            seg_x1 = int(w * seg_ratio_hi)
             if fill_w > seg_x0:
-                p.fillRect(seg_x0, 0, min(fill_w, seg_x1) - seg_x0, VU_H, QColor(color))
+                p.fillRect(seg_x0, 0, min(fill_w, seg_x1) - seg_x0, h, QColor(color))
 
         p.end()
 

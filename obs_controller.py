@@ -222,6 +222,9 @@ class OBSController:
         logging.basicConfig(level=log_level)
         logger.setLevel(log_level)
 
+        # 抑制 obsws-python 的 ERROR 日志（如 604 错误已在 get_audio_inputs 中优雅处理）
+        logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
+
         # 请求锁 —— ReqClient 非线程安全，多线程共享时必须串行化
         self._req_lock = threading.Lock()
 

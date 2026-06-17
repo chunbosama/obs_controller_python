@@ -25,11 +25,11 @@ class LogWindow(QGroupBox):
     MAX_LINES = 500
 
     LEVEL_STYLES = {
-        "INFO":    ("#cccccc", "[INFO]"),
-        "SUCCESS": (CLR_GREEN, "[SUCCESS]"),
-        "WARNING": (CLR_YELLOW, "[WARNING]"),
-        "ERROR":   (CLR_RED,   "[ERROR]"),
-        "DEBUG":   (CLR_SUBTEXT, "[DEBUG]"),
+        "INFO":    ("#a0a0c0", "[INFO]"),
+        "SUCCESS": (CLR_GREEN, "[OK]   "),
+        "WARNING": (CLR_YELLOW, "[WARN] "),
+        "ERROR":   (CLR_RED,   "[ERR]  "),
+        "DEBUG":   (CLR_SUBTEXT, "[DBG]  "),
     }
 
     def __init__(self, parent, app: "OBSGui"):
@@ -43,7 +43,9 @@ class LogWindow(QGroupBox):
         self._text = QTextEdit()
         self._text.setReadOnly(True)
         self._text.setFont(QFont("Consolas", 9))
-        self._text.setStyleSheet("QTextEdit { background-color: #1a1a1a; color: #cccccc; border: none; }")
+        self._text.setStyleSheet(
+            "QTextEdit { background-color: #161624; color: #a0a0c0; border: none; }"
+        )
         layout.addWidget(self._text)
 
         # 预定义颜色格式
@@ -87,13 +89,19 @@ class LogWindow(QGroupBox):
         self._trim_if_needed()
 
     def _trim_if_needed(self) -> None:
+        """超出 MAX_LINES 时，一次性删除前半段内容（块操作，比逐行高效）。"""
         if self._line_count <= self.MAX_LINES:
             return
+        keep = self.MAX_LINES // 2
+        trim_count = self._line_count - keep
+
+        # 用块选择一次删除多余行
+        doc = self._text.document()
         cursor = self._text.textCursor()
         cursor.movePosition(cursor.Start)
-        keep = self.MAX_LINES // 2
-        # 移动到要保留的行
-        for _ in range(self._line_count - keep):
+        # 跳过 trim_count 行
+        for _ in range(trim_count):
             cursor.movePosition(cursor.Down, cursor.KeepAnchor)
+        cursor.movePosition(cursor.StartOfLine, cursor.KeepAnchor)
         cursor.removeSelectedText()
         self._line_count = keep

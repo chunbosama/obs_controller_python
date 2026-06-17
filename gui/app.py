@@ -61,43 +61,54 @@ class OBSGui(QMainWindow):
     def _build_toolbar(self) -> QWidget:
         """连接工具栏。"""
         bar = QWidget()
+        bar.setFixedHeight(36)
+        bar.setStyleSheet("QWidget { background-color: #161624; border-bottom: 1px solid #3a3a5c; }")
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(4, 3, 4, 3)
+        layout.setContentsMargins(10, 2, 10, 2)
+        layout.setSpacing(6)
 
         # 状态指示灯
         self._led = QLabel("●")
-        self._led.setStyleSheet(f"color: {CLR_RED}; font-size: 14pt;")
+        self._led.setStyleSheet(f"color: {CLR_RED}; font-size: 13pt; background: transparent;")
         layout.addWidget(self._led)
 
         self._conn_label = QLabel("未连接")
-        self._conn_label.setStyleSheet("color: #aaaaaa;")
+        self._conn_label.setStyleSheet("color: #55556a; font-size: 9pt; background: transparent;")
+        self._conn_label.setFixedWidth(140)
         layout.addWidget(self._conn_label)
 
         # 分隔线
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
-        sep.setStyleSheet("color: #444444;")
+        sep.setStyleSheet("color: #3a3a5c; background: transparent;")
         layout.addWidget(sep)
 
-        layout.addWidget(QLabel("Host:"))
+        lbl_h = QLabel("Host:")
+        lbl_h.setStyleSheet("color: #8888a8; background: transparent;")
+        layout.addWidget(lbl_h)
         self._host_edit = QLineEdit("localhost")
-        self._host_edit.setFixedWidth(100)
+        self._host_edit.setFixedWidth(110)
         layout.addWidget(self._host_edit)
 
-        layout.addWidget(QLabel("Port:"))
+        lbl_p = QLabel("Port:")
+        lbl_p.setStyleSheet("color: #8888a8; background: transparent;")
+        layout.addWidget(lbl_p)
         self._port_edit = QLineEdit("4455")
-        self._port_edit.setFixedWidth(50)
+        self._port_edit.setFixedWidth(52)
         layout.addWidget(self._port_edit)
 
-        layout.addWidget(QLabel("Pwd:"))
+        lbl_pw = QLabel("密码:")
+        lbl_pw.setStyleSheet("color: #8888a8; background: transparent;")
+        layout.addWidget(lbl_pw)
         self._pwd_edit = QLineEdit()
-        self._pwd_edit.setFixedWidth(90)
+        self._pwd_edit.setFixedWidth(96)
         self._pwd_edit.setEchoMode(QLineEdit.Password)
+        self._pwd_edit.setPlaceholderText("（留空）")
         layout.addWidget(self._pwd_edit)
 
         self._conn_btn = QPushButton("连接")
         self._conn_btn.setProperty("success", True)
-        self._conn_btn.setFixedWidth(60)
+        self._conn_btn.setFixedWidth(76)
         self._conn_btn.clicked.connect(self._on_connect)
         layout.addWidget(self._conn_btn)
 
@@ -199,7 +210,12 @@ class OBSGui(QMainWindow):
         right_layout.addWidget(self.stats_tab)
 
         splitter.addWidget(right)
-        splitter.setSizes([500, 780])
+        # 使用比例而不是固定值，使 splitter 自适应窗口大小
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        # 设置初始比例为 1:1.5
+        total_width = self.width()
+        splitter.setSizes([int(total_width * 0.4), int(total_width * 0.6)])
 
     # ══════════════════════════════════════════════════════════
     # 状态栏方法
@@ -283,7 +299,17 @@ class OBSGui(QMainWindow):
         self._conn_label.setText("连接失败")
         self._conn_label.setStyleSheet("color: #e74c3c;")
         self.log(f"连接失败: {exc}", "ERROR")
-        QMessageBox.critical(self, "连接失败", str(exc))
+
+        msg = str(exc)
+        hint = ""
+        if "failed to identify" in msg.lower():
+            hint = ("\n\n请检查：\n"
+                    "1. OBS 是否已启动并启用 WebSocket 服务器\n"
+                    "2. 主机地址和端口是否正确（默认 localhost:4455）\n"
+                    "3. 密码是否正确（OBS → 工具 → WebSocket 服务器设置）")
+        elif "code 604" in msg.lower():
+            hint = ""  # 已内部处理，仅提示
+        QMessageBox.critical(self, "连接失败", msg + hint)
 
     def _on_disconnect(self) -> None:
         self._stop_polls()
@@ -317,6 +343,8 @@ class OBSGui(QMainWindow):
                     else getattr(data, "scene_name", ""))
             if name:
                 self.set_scene(name)
+                # 更新预览面板的场景缓存，减少下一次刷新的额外请求
+                self.preview_panel._cached_program_scene = name
                 self.scene_tab.refresh()
 
         def on_scene_created(data):

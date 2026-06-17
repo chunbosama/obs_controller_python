@@ -109,7 +109,9 @@ class SceneTab(QWidget):
         right_layout.addLayout(item_btn_row)
         splitter.addWidget(right)
 
-        splitter.setSizes([300, 500])
+        # 使用比例而不是固定值
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
 
         # 右键菜单
         self._ctx_menu = QMenu(self)
@@ -190,7 +192,7 @@ class SceneTab(QWidget):
         self.app.log(f"切换场景 → {scene}", "INFO")
         run_in_thread(
             lambda: ctrl.set_current_scene(scene),
-            lambda _: self.app.status_bar.set_scene(scene),
+            lambda _: self.app.set_scene(scene),
         )
 
     def _create_scene(self) -> None:

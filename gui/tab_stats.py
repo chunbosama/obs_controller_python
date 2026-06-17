@@ -59,10 +59,11 @@ class StatsTab(QGroupBox):
         # ── 统计卡片 ──
         card_row = QHBoxLayout()
 
-        self._fps_card  = StatCard(card_row.widget(), "FPS",  "#00bc8c")
-        self._cpu_card  = StatCard(card_row.widget(), "CPU%", "#f39c12")
-        self._mem_card  = StatCard(card_row.widget(), "MEM MB", "#375a7f")
-        self._disk_card = StatCard(card_row.widget(), "磁盘 GB", "#aaaaaa")
+        # 修复：StatCard 父对象应为 self（QGroupBox），而非 card_row.widget()（返回 None）
+        self._fps_card  = StatCard(self, "FPS",  "#3dd68c")
+        self._cpu_card  = StatCard(self, "CPU%", "#fbbf24")
+        self._mem_card  = StatCard(self, "MEM MB", "#4f8fc0")
+        self._disk_card = StatCard(self, "磁盘 GB", "#8888a8")
 
         card_row.addWidget(self._fps_card)
         card_row.addWidget(self._cpu_card)
