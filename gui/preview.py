@@ -32,9 +32,15 @@ class PreviewPanel(QGroupBox):
 
         self._init_ui()
 
-        # 定时器：800ms 刷新一次，降低 WebSocket 请求频率
+        # 定时器：250ms 刷新一次，兼顾实时性和请求频率
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_frames)
+        # 防止事件触发和定时器同时刷新导致请求堆积
+        self._last_refresh_ts: float = 0.0
+        # 帧序号，用于日志追踪
+        self._frame_seq: int = 0
+        # 防止并发抓取
+        self._fetching: bool = False
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -123,11 +129,17 @@ class PreviewPanel(QGroupBox):
     # ── 预览更新循环 ─────────────────────────────────────────
 
     def start_loop(self) -> None:
-        """连接成功后调用，启动 800ms 刷新循环。"""
+        """连接成功后调用，启动 250ms 实时刷新循环。"""
+        print("[preview] start_loop called")
         self.program_label.setText("连接中…")
         self.preview_label.setText("连接中…")
         self._cached_program_scene = None
-        self._timer.start(800)
+        self._last_refresh_ts = 0.0
+        self._fetching = False
+        self._timer.start(250)
+        print(f"[preview] timer started, isActive={self._timer.isActive()}")
+        # 立即触发第一次刷新
+        self._update_frames()
 
     def stop_loop(self) -> None:
         """断开连接时停止循环。"""
@@ -139,6 +151,15 @@ class PreviewPanel(QGroupBox):
         self.preview_label.setText("PREVIEW\n（未连接）")
         self.preview_label.setPixmap(QPixmap())
 
+    def trigger_refresh(self) -> None:
+        """事件驱动的即时刷新，带 100ms 冷却防止请求堆积。"""
+        import time
+        now = time.time()
+        if now - self._last_refresh_ts < 0.1:
+            return
+        self._last_refresh_ts = now
+        self._update_frames()
+
     def preview_one_shot(self, scene_name: str) -> None:
         """在 PREVIEW 画面上显示指定场景的截图。"""
         ctrl = self.app.ctrl
@@ -149,10 +170,10 @@ class PreviewPanel(QGroupBox):
         self._preview_locked_scene = scene_name
         self.app.log(f"正在预览场景: {scene_name}", "INFO")
 
-        # 根据标签实际大小动态计算截图尺寸
+        # 根据标签实际大小动态计算截图尺寸（保持 16:9 比例，避免拉伸变形）
         label_size = self.preview_label.size()
         width = max(label_size.width(), 320)
-        height = max(label_size.height(), 180)
+        height = max(int(width * 9 / 16), 180)
 
         def fetch():
             return ctrl.get_source_screenshot(
@@ -164,85 +185,140 @@ class PreviewPanel(QGroupBox):
         run_in_thread(
             fetch,
             lambda b64: self._put_image(self.preview_label, b64),
+            lambda exc: self.app.log(f"预览截图失败 [{scene_name}]: {exc}", "WARNING"),
         )
 
     def _update_frames(self) -> None:
-        """每 800ms 获取一次截图并更新两块画面。"""
+        """获取 PROGRAM 和 PREVIEW 的截图并更新画面。"""
         ctrl = self.app.ctrl
         if ctrl is None:
+            print("[preview] _update_frames: ctrl is None, skip")
             return
 
-        override = self._preview_locked_scene
+        # 防止上一帧还未处理完时重复提交
+        if self._fetching:
+            return
+        self._fetching = True
 
-        # 根据标签实际大小动态计算截图尺寸
+        self._frame_seq += 1
+        seq = self._frame_seq
+        override = self._preview_locked_scene
+        cached_scene = self._cached_program_scene
+
+        print(f"[preview] #{seq} _update_frames start, fetching=True")
+
+        # 根据标签实际大小动态计算截图尺寸（保持 16:9 比例）
         prog_size = self.program_label.size()
         prev_size = self.preview_label.size()
         prog_width = max(prog_size.width(), 320)
-        prog_height = max(prog_size.height(), 180)
+        prog_height = max(int(prog_width * 9 / 16), 180)
         prev_width = max(prev_size.width(), 320)
-        prev_height = max(prev_size.height(), 180)
+        prev_height = max(int(prev_width * 9 / 16), 180)
 
-        cached_scene = self._cached_program_scene
+        def fetch_both():
+            """在后台线程中串行获取两个截图。"""
+            import concurrent.futures
+            print(f"[preview] #{seq} fetch_both thread started")
 
-        # PROGRAM：若有缓存场景名则直接截图，否则先查询场景名
-        def fetch_program():
+            # PROGRAM —— 带 5 秒超时
             scene = cached_scene
             if not scene:
-                scene = ctrl.get_current_scene()
-            b64 = ctrl.get_source_screenshot(
-                source_name=scene,
-                img_format="jpg", width=prog_width, height=prog_height,
-                quality=60,
-            )
-            return (scene, b64)
+                try:
+                    scene = ctrl.get_current_scene()
+                    print(f"[preview] #{seq} current scene = {scene}")
+                except Exception as e:
+                    print(f"[preview] #{seq} get_current_scene failed: {e}")
+                    scene = ""
+            prog_b64 = ""
+            if scene:
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                        fut = ex.submit(
+                            ctrl.get_source_screenshot,
+                            source_name=scene,
+                            img_format="jpg", width=prog_width, height=prog_height,
+                            quality=60,
+                        )
+                        prog_b64 = fut.result(timeout=5)
+                    print(f"[preview] #{seq} PROGRAM screenshot OK, len={len(prog_b64)}")
+                except concurrent.futures.TimeoutError:
+                    print(f"[preview] #{seq} PROGRAM screenshot TIMEOUT")
+                except Exception as exc:
+                    print(f"[preview] #{seq} PROGRAM screenshot failed: {exc}")
 
-        def on_program(result):
-            scene, b64 = result
-            # 更新缓存
-            self._cached_program_scene = scene
-            self._put_image(self.program_label, b64)
-
-        run_in_thread(fetch_program, on_program)
-
-        # PREVIEW
-        def fetch_preview():
+            # PREVIEW —— 带 5 秒超时
             if override:
                 prev_scene = override
             else:
                 try:
                     prev_scene = ctrl.get_current_preview_scene() or ctrl.get_current_scene()
-                except Exception:
-                    prev_scene = ctrl.get_current_scene()
-            return ctrl.get_source_screenshot(
-                source_name=prev_scene,
-                img_format="jpg", width=prev_width, height=prev_height,
-                quality=60,
-            )
+                    print(f"[preview] #{seq} preview scene = {prev_scene}")
+                except Exception as e:
+                    print(f"[preview] #{seq} get_preview_scene failed: {e}")
+                    try:
+                        prev_scene = ctrl.get_current_scene()
+                    except Exception:
+                        prev_scene = ""
+            prev_b64 = ""
+            if prev_scene:
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                        fut = ex.submit(
+                            ctrl.get_source_screenshot,
+                            source_name=prev_scene,
+                            img_format="jpg", width=prev_width, height=prev_height,
+                            quality=60,
+                        )
+                        prev_b64 = fut.result(timeout=5)
+                    print(f"[preview] #{seq} PREVIEW screenshot OK, len={len(prev_b64)}")
+                except concurrent.futures.TimeoutError:
+                    print(f"[preview] #{seq} PREVIEW screenshot TIMEOUT")
+                except Exception as exc:
+                    print(f"[preview] #{seq} PREVIEW screenshot failed: {exc}")
 
-        def on_preview(b64):
-            self._put_image(self.preview_label, b64)
+            print(f"[preview] #{seq} fetch_both done")
+            return (scene, prog_b64, prev_b64)
 
-        run_in_thread(fetch_preview, on_preview)
+        def on_result(result):
+            self._fetching = False
+            scene, prog_b64, prev_b64 = result
+            print(f"[preview] #{seq} on_result: scene={scene}, prog_len={len(prog_b64)}, prev_len={len(prev_b64)}")
+            if scene:
+                self._cached_program_scene = scene
+            if prog_b64:
+                self._put_image(self.program_label, prog_b64)
+            if prev_b64:
+                self._put_image(self.preview_label, prev_b64)
+
+        def on_error(exc):
+            self._fetching = False
+            print(f"[preview] #{seq} on_error: {exc}")
+
+        run_in_thread(fetch_both, on_result, on_error)
 
     def _put_image(self, label: QLabel, b64: str) -> None:
         """解码 base64 JPEG 并显示到 QLabel。"""
+        if not b64:
+            print("[preview] _put_image: empty b64, skip")
+            return
         try:
+            print(f"[preview] _put_image: decoding {len(b64)} chars, first 40: {b64[:40]}")
             if isinstance(b64, str) and "," in b64:
                 b64 = b64.split(",", 1)[1]
             raw = base64.b64decode(b64)
-            img = QImage()
-            img.loadFromData(raw)
-            if not img.isNull():
-                # 根据 label 的实际大小缩放图片
-                label_size = label.size()
-                scaled = img.scaled(
-                    label_size.width(), label_size.height(),
-                    Qt.KeepAspectRatio, Qt.SmoothTransformation,
-                )
-                label.setPixmap(QPixmap.fromImage(scaled))
-                label.setText("")
-        except Exception:
-            label.setText("截图加载失败")
+            img = QImage.fromData(raw)
+            if img.isNull():
+                print("[preview] _put_image: QImage is null")
+                return
+            label_size = label.size()
+            w = max(label_size.width(), 1)
+            h = max(label_size.height(), 1)
+            scaled = img.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            label.setPixmap(QPixmap.fromImage(scaled))
+            label.setText("")
+            print(f"[preview] _put_image: displayed {img.width()}x{img.height()} → {w}x{h}")
+        except Exception as exc:
+            print(f"[preview] _put_image ERROR: {exc}")
 
     # ── T-Bar 回调 ────────────────────────────────────────────
 

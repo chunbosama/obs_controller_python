@@ -346,6 +346,8 @@ class OBSGui(QMainWindow):
                 # 更新预览面板的场景缓存，减少下一次刷新的额外请求
                 self.preview_panel._cached_program_scene = name
                 self.scene_tab.refresh()
+                # 场景切换时立即刷新预览画面
+                self.preview_panel.trigger_refresh()6
 
         def on_scene_created(data):
             self.scene_tab.refresh()
@@ -506,7 +508,18 @@ class OBSGui(QMainWindow):
     def do_cut(self) -> None:
         if self.ctrl is None:
             return
-        run_in_thread(self.ctrl.trigger_studio_mode_transition)
+        ctrl = self.ctrl
+
+        def do_cut_inner():
+            cut_name = ctrl._find_cut_transition()
+            if not cut_name:
+                self.log("未找到 Cut 类转场，请确认 OBS 中存在硬切转场", "WARN")
+                return
+            ctrl.set_current_transition(cut_name)
+            ctrl.set_transition_duration(50)
+            ctrl.trigger_studio_mode_transition()
+
+        run_in_thread(do_cut_inner)
 
     def do_fade(self) -> None:
         if self.ctrl is None:
@@ -514,7 +527,11 @@ class OBSGui(QMainWindow):
         ctrl = self.ctrl
 
         def do_fade_inner():
-            ctrl.set_current_transition("Fade")
+            fade_name = ctrl._find_fade_transition()
+            if not fade_name:
+                self.log("未找到 Fade 类转场，请确认 OBS 中存在淡入淡出转场", "WARN")
+                return
+            ctrl.set_current_transition(fade_name)
             ctrl.set_transition_duration(500)
             ctrl.trigger_studio_mode_transition()
 

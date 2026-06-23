@@ -1063,6 +1063,33 @@ class OBSController:
             logger.error(f"设置转场时间失败: {e}")
             raise
 
+    def _find_cut_transition(self) -> str:
+        """
+        查找当前 OBS 中可用的 Cut（硬切/直接切换）转场实例名称。
+        OBS 转场名称是本地化的（中文版叫"直接切换"），不能写死 "Cut"。
+        主要通过 transitionKind == "cut_transition" 匹配，不受本地化影响。
+        返回找到的转场实例名称；如果不存在则返回空字符串。
+        """
+        try:
+            resp = self.req.get_scene_transition_list()
+            items = list(resp.transitions)
+            for item in items:
+                if isinstance(item, dict):
+                    name = item.get("transitionName") or item.get("transition_name") or ""
+                    kind = item.get("transitionKind") or item.get("transition_kind") or ""
+                else:
+                    name = getattr(item, "transition_name", "") or getattr(item, "transitionName", "")
+                    kind = getattr(item, "transition_kind", "") or getattr(item, "transitionKind", "")
+                name_str = str(name)
+                if kind == "cut_transition" or "cut" in name_str.lower() or "切" in name_str:
+                    logger.info(f"  找到 Cut 类转场: name={name_str}")
+                    return name_str
+            logger.warning(f"未找到 Cut 类转场，原始数据: {items}")
+            return ""
+        except Exception as e:
+            logger.warning(f"查找 Cut 转场失败: {e}")
+            return ""
+
     def _find_fade_transition(self) -> str:
         """
         查找当前 OBS 中可用的 Fade 类转场实例名称。
