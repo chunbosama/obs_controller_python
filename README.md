@@ -1,10 +1,10 @@
 # OBS 全功能控制台
 
+
 > 基于 Python + ttkbootstrap 的 OBS Studio 图形化控制台，通过 OBS WebSocket v5 协议实时操控直播/录制的每一个细节。
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![OBS](https://img.shields.io/badge/OBS-28%2B-blueviolet)
-![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -113,14 +113,6 @@ pip install obsws-python ttkbootstrap pillow
 4. 记录生成的**密码**（建议开启密码保护）
 5. 确认端口（默认 `4455`）
 
-### 3. 克隆 / 下载项目
-
-```bash
-git clone <本仓库地址>
-cd obs-console
-```
-
----
 
 ## 启动方式
 
@@ -339,7 +331,7 @@ with OBSController(host="localhost", port=4455, password="your_password") as obs
     obs.fade_to_black()                # 淡出到黑场
 ```
 
-SDK 支持 30+ 功能模块，详见 [docs/obs_controller.md](README_obs_controller.md)（原 SDK 说明文档）。
+SDK 支持 30+ 功能模块，详见 [obsws-python-helper](https://github.com/chunbosama/obsws-python-helper)。
 
 ---
 
@@ -382,8 +374,4 @@ SDK 支持 30+ 功能模块，详见 [docs/obs_controller.md](README_obs_control
 5. **事件自动刷新**：场景的新建/删除/重命名会通过 OBS 事件自动同步到场景列表，无需手动刷新
 6. **音频源过滤**：音频混音台只显示支持音量控制的音频源，纯视频源（文本、图片、显示器捕获等）自动排除
 
----
 
-## License
-
-MIT License — 自由使用、修改和分发，保留原始版权声明即可。
