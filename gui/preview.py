@@ -42,14 +42,14 @@ class PreviewPanel:
         canvas_row = ttk_bs.Frame(frame)
         canvas_row.pack(fill="x")
 
-        self.program_canvas = self._make_canvas(
-            canvas_row, "🔴  PROGRAM", CLR_RED
+        self.preview_canvas = self._make_canvas(
+            canvas_row, "🟢  PREVIEW", CLR_GREEN
         )
         ttk_bs.Separator(canvas_row, orient="vertical").pack(
             side="left", fill="y", padx=4
         )
-        self.preview_canvas = self._make_canvas(
-            canvas_row, "🟢  PREVIEW", CLR_GREEN
+        self.program_canvas = self._make_canvas(
+            canvas_row, "🔴  PROGRAM", CLR_RED
         )
 
         # 画布占位文字

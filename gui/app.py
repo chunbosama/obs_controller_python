@@ -4,10 +4,21 @@ gui/app.py  ——  主窗口类 OBSGui
       事件注册、轮询调度、全局线程安全
 """
 from __future__ import annotations
+import json
+import os
 import sys
 import tkinter as tk
 from tkinter import messagebox
 from typing import Optional
+
+# 持久化配置文件路径（与项目目录同级）
+_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "obs_config.json",
+)
+
+# 节目单占位提示文字（类级常量，供加载/保存时引用）
+_RUNDOWN_PLACEHOLDER = "在此粘贴节目单…"
 
 import ttkbootstrap as ttk_bs
 from ttkbootstrap.constants import *
@@ -94,6 +105,7 @@ class OBSGui:
 
         self._build_status_bar()
         self._build_main_area()
+        self._load_config()            # 恢复上次的连接参数和节目单
 
         # 轮询 after-id 集合
         self._after_stats   : str | None = None
@@ -166,11 +178,64 @@ class OBSGui:
                          padx=6, pady=(6, 2))
         self.preview_panel = PreviewPanel(preview_frame, self)
 
-        # 下部：日志窗口（固定高度 150px）
-        log_frame = ttk_bs.Frame(left)
-        log_frame.pack(side="bottom", fill="x", padx=6, pady=(2, 6))
+        # 下部：日志 + 节目单（水平左右可拖动分割）
+        bottom_paned = ttk_bs.Panedwindow(left, orient="horizontal")
+        bottom_paned.pack(side="bottom", fill="x", padx=6, pady=(2, 6))
+
+        # 左半：日志窗口
+        log_frame = ttk_bs.Frame(bottom_paned)
+        bottom_paned.add(log_frame, weight=1)
         self.log_window = LogWindow(log_frame, self)
         self.log_window.frame.pack(fill="both", expand=True)
+        log_frame.configure(height=75)
+        log_frame.pack_propagate(False)
+
+        # 右半：节目单文本框
+        rundown_frame = ttk_bs.Labelframe(
+            bottom_paned, text=" 📋 节目单 ", padding=(2, 2)
+        )
+        bottom_paned.add(rundown_frame, weight=1)
+        rundown_frame.configure(height=75)
+
+        rd_container = ttk_bs.Frame(rundown_frame)
+        rd_container.pack(fill="both", expand=True)
+
+        self.rundown_text = tk.Text(
+            rd_container,
+            wrap="word",
+            font=("Segoe UI", 9),
+            bg="#1c1c2e",
+            fg="#e0e0ff",
+            insertbackground="#e0e0ff",
+            relief="flat",
+            borderwidth=0,
+            padx=6, pady=4,
+            highlightthickness=0,
+        )
+        rd_sb = ttk_bs.Scrollbar(
+            rd_container, orient="vertical", command=self.rundown_text.yview
+        )
+        self.rundown_text.configure(yscrollcommand=rd_sb.set)
+        rd_sb.pack(side="right", fill="y")
+        self.rundown_text.pack(side="left", fill="both", expand=True)
+
+        # 占位提示（第一次获得焦点时自动清除）
+        self.rundown_text.insert("1.0", _RUNDOWN_PLACEHOLDER)
+        self.rundown_text.tag_configure("placeholder", foreground="#555577")
+        self.rundown_text.tag_add("placeholder", "1.0", "end")
+
+        def _on_focus_in(e):
+            if self.rundown_text.get("1.0", "end-1c") == _RUNDOWN_PLACEHOLDER:
+                self.rundown_text.delete("1.0", "end")
+                self.rundown_text.tag_remove("placeholder", "1.0", "end")
+
+        def _on_focus_out(e):
+            if not self.rundown_text.get("1.0", "end-1c").strip():
+                self.rundown_text.insert("1.0", _RUNDOWN_PLACEHOLDER)
+                self.rundown_text.tag_add("placeholder", "1.0", "end")
+
+        self.rundown_text.bind("<FocusIn>",  _on_focus_in)
+        self.rundown_text.bind("<FocusOut>", _on_focus_out)
 
         # ── 右：工具栏 + Notebook + 统计面板 ─────────────────────
         right = ttk_bs.Frame(paned)
@@ -511,10 +576,63 @@ class OBSGui:
         self.log_window.log(message, level)
 
     # ══════════════════════════════════════════════════════════
+    # 持久化（记忆功能）
+    # ══════════════════════════════════════════════════════════
+
+    def _load_config(self) -> None:
+        """启动时从 obs_config.json 恢复连接参数和节目单内容。"""
+        try:
+            if not os.path.exists(_CONFIG_PATH):
+                return
+            with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            return
+
+        # 恢复连接参数
+        if cfg.get("host"):
+            self._host_var.set(cfg["host"])
+        if cfg.get("port"):
+            self._port_var.set(str(cfg["port"]))
+        if cfg.get("password"):
+            self._pwd_var.set(cfg["password"])
+
+        # 恢复节目单内容（非空时覆盖占位文字）
+        rundown = cfg.get("rundown", "")
+        if rundown.strip():
+            current = self.rundown_text.get("1.0", "end-1c")
+            if current == _RUNDOWN_PLACEHOLDER:
+                self.rundown_text.delete("1.0", "end")
+                self.rundown_text.tag_remove("placeholder", "1.0", "end")
+            self.rundown_text.insert("1.0", rundown)
+
+    def _get_rundown_text(self) -> str:
+        """获取节目单实际内容（占位文字当作空）。"""
+        text = self.rundown_text.get("1.0", "end-1c")
+        if text == _RUNDOWN_PLACEHOLDER:
+            return ""
+        return text
+
+    def _save_config(self) -> None:
+        """退出时将连接参数和节目单写入 obs_config.json。"""
+        config = {
+            "host": self._host_var.get().strip(),
+            "port": self._port_var.get().strip(),
+            "password": self._pwd_var.get().strip(),
+            "rundown": self._get_rundown_text(),
+        }
+        try:
+            with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    # ══════════════════════════════════════════════════════════
     # 关闭处理
     # ══════════════════════════════════════════════════════════
 
     def _on_close(self) -> None:
+        self._save_config()           # 记住本次使用的连接参数和节目单
         self._on_disconnect()
         self.root.destroy()
 
