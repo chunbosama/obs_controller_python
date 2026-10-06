@@ -1,5 +1,5 @@
 # OBS 全功能控制台
-
+##项目已重构，此仓库不再更新，欢迎前往全新版本[OBS-remote-studio](https://github.com/chunbosama/obs-remote-studio)
 
 > 基于 Python + ttkbootstrap 的 OBS Studio 图形化控制台，通过 OBS WebSocket v5 协议实时操控直播/录制的每一个细节。
 
